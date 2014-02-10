@@ -1,9 +1,7 @@
-DCA Plugin for DeaDBeeF Player
+APE / Monkey's Audio plugin for DeaDBeeF
 Copyright (C) 2009-2014 Alexey Yakovenko <waker@users.sourceforge.net>
-
-libdca (C) Gildas Bazin et al.
-deadbeef-related modifications (C) Alexey Yakovenko
-see AUTHORS for more details
+based on apedec from FFMpeg Copyright (c) 2007 Benjamin Zores <ben@geexbox.org>
+based upon libdemac from Dave Chapman.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License

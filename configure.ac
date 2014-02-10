@@ -4,7 +4,7 @@ AC_INIT([deadbeef], [devel])
 AC_CONFIG_HEADER(config.h)
 
 AM_INIT_AUTOMAKE([1.11 dist-bzip2 tar-ustar])
-dnl AM_SILENT_RULES([yes])
+AM_SILENT_RULES([yes])
 AM_MAINTAINER_MODE()
 
 AC_USE_SYSTEM_EXTENSIONS
@@ -30,37 +30,37 @@ AC_DEFINE_UNQUOTED(LOCALEDIR, "${prefix}/${DATADIRNAME}/locale", [Name of gettex
 case "$host" in
   i686-apple-*)
     AC_DEFINE(ARCH_X86_32, 1, [architecture is x86 on OSX])
-    LIB="../deadbeef-deps/lib-x86-32-apple"
+    LIB="static-deps/lib-x86-32-apple"
     YASM_FLAGS="-f macho32 -D ARCH_X86_32 -m x86 -DPREFIX"
     APE_USE_YASM=yes
     OS_OSX=yes
     ;;
   x86_64-apple-*)
     AC_DEFINE(ARCH_X86_64, 1, [architecture is x86_64 on OSX])
-    LIB="../deadbeef-deps/lib-x86-64-apple"
+    LIB="static-deps/lib-x86-64-apple"
     YASM_FLAGS="-f macho64 -D ARCH_X86_64 -m amd64 -DPIC -DPREFIX"
     APE_USE_YASM=yes
     OS_OSX=yes
     ;;
   i386-*-* | i486-*-* | i586-*-* | i686-*-* | i86pc-*-*)
     AC_DEFINE(ARCH_X86_32, 1, [architecture is x86])
-    LIB="../deadbeef-deps/lib-x86-32"
+    LIB="static-deps/lib-x86-32"
     YASM_FLAGS="-f elf -D ARCH_X86_32 -m x86"
     APE_USE_YASM=yes
     ;;
   x86_64-*-* | amd64-*-*)
     AC_DEFINE(ARCH_X86_64, 1, [architecture is x86_64])
-    LIB="../deadbeef-deps/lib-x86-64"
+    LIB="static-deps/lib-x86-64"
     YASM_FLAGS="-f elf -D ARCH_X86_64 -m amd64"
     APE_USE_YASM=yes
     ;;
   powerpc-*-* )
     AC_DEFINE(ARCH_PPC_32, 1, [architecture is ppc32])
-    LIB="../deadbeef-deps/lib-ppc-32"
+    LIB="static-deps/lib-ppc-32"
     ;;
   powerpc64-*-* )
     AC_DEFINE(ARCH_PPC_64, 1, [architecture is ppc64])
-    LIB="../deadbeef-deps/lib-ppc-64"
+    LIB="static-deps/lib-ppc-64"
     ;;
   *)
     AC_DEFINE(ARCH_UNKNOWN, 1, [architecture is unknown])
@@ -187,21 +187,27 @@ CFLAGS="$CFLAGS $INSANE_CFLAGS -D_GNU_SOURCE $PREFIXFLAGS -DDDB_WARN_DEPRECATED=
 
 AS_IF([test "${enable_staticlink}" != "no"], [
     HAVE_ZLIB=yes
+    ZLIB_CFLAGS="-I../../$LIB/include"
     ZLIB_LIBS="../../$LIB/lib/libz.a"
+    AC_SUBST(ZLIB_CFLAGS)
+    AC_SUBST(ZLIB_LIBS)
 ], [
     AC_CHECK_LIB([z], [main], [HAVE_ZLIB=yes])
     ZLIB_LIBS="-lz"
+    AC_SUBST(ZLIB_LIBS)
 ])
-AC_SUBST(ZLIB_LIBS)
 
 AS_IF([test "${enable_staticlink}" != "no"], [
     HAVE_ZIP=yes
+    ZIP_CFLAGS="-I../../$LIB/include"
     ZIP_LIBS="../../$LIB/lib/libzip.a ../../$LIB/lib/libz.a"
+    AC_SUBST(ZIP_CFLAGS)
+    AC_SUBST(ZIP_LIBS)
 ], [
     AC_CHECK_LIB([zip], [main], [HAVE_ZIP=yes])
     ZIP_LIBS="-lzip"
+    AC_SUBST(ZIP_LIBS)
 ])
-AC_SUBST(ZIP_LIBS)
 
 AS_IF([test "${enable_gtk3}" = "yes"], [
     AS_IF([test "${enable_staticlink}" != "no"], [
@@ -235,7 +241,16 @@ dnl    AC_CHECK_LIB([ICE], [main], [HAVE_ICE=yes;ICE_LIBS="-lICE";AC_SUBST(ICE_L
 ])
 
 AS_IF([test "${enable_alsa}" != "no"], [
-    PKG_CHECK_MODULES(ALSA_DEPS, alsa, HAVE_ALSA=yes, HAVE_ALSA=no)
+    AS_IF([test "${enable_staticlink}" != "no"], [
+        HAVE_ALSA=yes
+        ALSA_DEPS_CFLAGS="-I../../$LIB/include"
+        ALSA_DEPS_LIBS="-lasound"
+        AC_SUBST(ALSA_DEPS_CFLAGS)
+        AC_SUBST(ALSA_DEPS_LIBS)
+    ],
+    [
+        PKG_CHECK_MODULES(ALSA_DEPS, alsa, HAVE_ALSA=yes, HAVE_ALSA=no)
+    ])
 ])
 
 AC_CHECK_HEADER([CoreAudio/AudioHardware.h], [found_coreaudio_h=yes], [found_coreaudio_h=no])
@@ -270,7 +285,15 @@ AS_IF([test "${enable_staticlink}" != "no"], [
 ])
 
 AS_IF([test "${enable_pulse}" != "no"], [
-    PKG_CHECK_MODULES(PULSE_DEPS, libpulse-simple, HAVE_PULSE=yes, HAVE_PULSE=no)
+    AS_IF([test "${enable_staticlink}" != "no"], [
+        HAVE_PULSE=yes
+        PULSE_DEPS_LIBS="-lpulse-simple"
+        PULSE_DEPS_CFLAGS="-I../../$LIB/include/"
+        AC_SUBST(DBUS_DEPS_CFLAGS)
+        AC_SUBST(DBUS_DEPS_LIBS)
+    ], [
+        PKG_CHECK_MODULES(PULSE_DEPS, libpulse-simple, HAVE_PULSE=yes, HAVE_PULSE=no)
+    ])
 ])
 
 AC_CHECK_HEADER([iconv.h],[],[iconv.h not found.])
@@ -305,7 +328,9 @@ dnl mpgmad plugin
 AS_IF([test "${enable_mpgmad}" != "no"], [
     AS_IF([test "${enable_staticlink}" != "no"], [
         HAVE_MPGMAD=yes
+        MAD_CFLAGS="-I../../$LIB/include"
         MAD_LIBS="../../$LIB/lib/libmad.a"
+        AC_SUBST(MAD_CFLAGS)
         AC_SUBST(MAD_LIBS)
     ], [
         AC_CHECK_LIB([mad], [main], [HAVE_LIBMAD=yes])
@@ -340,7 +365,9 @@ dnl flac plugin
 AS_IF([test "${enable_flac}" != "no"], [
     AS_IF([test "${enable_staticlink}" != "no"], [
         HAVE_FLACPLUGIN=yes
+        FLAC_CFLAGS="-I../../$LIB/include"
         FLAC_LIBS="../../$LIB/lib/libFLAC.a ../../$LIB/lib/libogg.a"
+        AC_SUBST(FLAC_CFLAGS)
         AC_SUBST(FLAC_LIBS)
     ], [
         AC_CHECK_LIB([FLAC], [main], [HAVE_FLAC=yes])
@@ -356,7 +383,9 @@ dnl wavpack plugin
 AS_IF([test "${enable_wavpack}" != "no"], [
     AS_IF([test "${enable_staticlink}" != "no"], [
         HAVE_WAVPACKPLUGIN=yes
+        WAVPACK_CFLAGS="-I../../$LIB/include"
         WAVPACK_LIBS="../../$LIB/lib/libwavpack.a"
+        AC_SUBST(WAVPACK_CFLAGS)
         AC_SUBST(WAVPACK_LIBS)
     ], [
         AC_CHECK_LIB([wavpack], [main], [HAVE_WAVPACK=yes])
@@ -372,7 +401,9 @@ dnl libsndfile plugin
 AS_IF([test "${enable_sndfile}" != "no"], [
     AS_IF([test "${enable_staticlink}" != "no"], [
         HAVE_SNDFILEPLUGIN=yes
-        SNDFILE_LIBS="../../$LIB/lib/libsndfile.a"
+        SNDFILE_CFLAGS="-I../../$LIB/include"
+        SNDFILE_LIBS="../../$LIB/lib/libsndfile"
+        AC_SUBST(SNDFILE_CFLAGS)
         AC_SUBST(SNDFILE_LIBS)
     ], [
         AC_CHECK_LIB([sndfile], [main], [HAVE_SNDFILE=yes])
@@ -430,11 +461,22 @@ AS_IF([test "${enable_ffmpeg}" != "no"], [
 ])
 
 AS_IF([test "${enable_hotkeys}" != "no"], [
-    AC_CHECK_HEADER([X11/Xlib.h], HAVE_XLIB_H=yes)
-    AS_IF([test "${HAVE_XLIB_H}" = "yes"], [
+    AS_IF([test "${enable_staticlink}" != "no"], [
+        HOTKEYS_CFLAGS="-I../../$LIB/include"
         HOTKEYS_LIBS="-lX11"
+        AC_SUBST(HOTKEYS_CFLAGS)
         AC_SUBST(HOTKEYS_LIBS)
         HAVE_HOTKEYS=yes
+    ],
+    [
+        AS_IF([test "${HAVE_XLIB_H}" = "yes"], [
+            AC_CHECK_HEADER([X11/Xlib.h], HAVE_XLIB_H=yes)
+            AS_IF([test "${HAVE_XLIB_H}" = "yes"], [
+                HOTKEYS_LIBS="-lX11"
+                AC_SUBST(HOTKEYS_LIBS)
+                HAVE_HOTKEYS=yes
+            ])
+        ])
     ])
 ])
 
@@ -557,7 +599,9 @@ AS_IF([test "${enable_nullout}" != "no"], [
 
 AS_IF([test "${enable_src}" != "no"], [
     AS_IF([test "${enable_staticlink}" != "no"], [
+        LIBSAMPLERATE_DEPS_CFLAGS="-I../../$LIB/include"
         LIBSAMPLERATE_DEPS_LIBS="../../$LIB/lib/libsamplerate.a -lpthread ${DL_LIBS}"
+        AC_SUBST(LIBSAMPLERATE_DEPS_CFLAGS)
         AC_SUBST(LIBSAMPLERATE_DEPS_LIBS)
         HAVE_DSP_SRC=yes
     ], [
@@ -606,7 +650,9 @@ AS_IF([test "${enable_dca}" != "no"], [
 
 AS_IF([test "${enable_aac}" != "no"], [
     AS_IF([test "${enable_staticlink}" != "no"], [
+        FAAD2_CFLAGS="-I../../$LIB/include"
         FAAD2_LIBS="../../$LIB/lib/libfaad.a"
+        AC_SUBST(FAAD2_CFLAGS)
         AC_SUBST(FAAD2_LIBS)
         HAVE_AAC=yes
     ], [
