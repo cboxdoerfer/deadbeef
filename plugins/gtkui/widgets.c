@@ -39,6 +39,9 @@
 #include "../../strdupa.h"
 #include "../../fastftoi.h"
 #include "actions.h"
+#include "ddbseekbar.h"
+#include "ddbvolumebar.h"
+#include "callbacks.h"
 
 //#define trace(...) { fprintf(stderr, __VA_ARGS__); }
 #define trace(fmt,...)
@@ -192,6 +195,22 @@ typedef struct {
     unsigned use_color : 1;
     unsigned use_textcolor : 1;
 } w_button_t;
+
+typedef struct {
+    ddb_gtkui_widget_t base;
+    GtkWidget *seekbar;
+    gint timer;
+    float last_songpos;
+} w_seekbar_t;
+
+typedef struct {
+    ddb_gtkui_widget_t base;
+} w_playtb_t;
+
+typedef struct {
+    ddb_gtkui_widget_t base;
+    GtkWidget *volumebar;
+} w_volumebar_t;
 
 static int design_mode;
 static ddb_gtkui_widget_t *rootwidget;
@@ -3444,4 +3463,214 @@ w_button_create (void) {
     w->base.initmenu = w_button_initmenu;
     w_override_signals (w->base.widget, w);
     return (ddb_gtkui_widget_t *)w;
+}
+
+// seekbar
+static gboolean
+redraw_seekbar_cb (gpointer data) {
+    w_seekbar_t *w = data;
+    int iconified = gdk_window_get_state(gtk_widget_get_window(mainwin)) & GDK_WINDOW_STATE_ICONIFIED;
+    if (!gtk_widget_get_visible (mainwin) || iconified) {
+        return FALSE;
+    }
+    gtk_widget_queue_draw (w->seekbar);
+    return FALSE;
+}
+
+static int
+w_seekbar_message (ddb_gtkui_widget_t *w, uint32_t id, uintptr_t ctx, uint32_t p1, uint32_t p2) {
+    switch (id) {
+    case DB_EV_SONGCHANGED:
+    case DB_EV_CONFIGCHANGED:
+        {
+            ddb_event_trackchange_t *ev = (ddb_event_trackchange_t *)ctx;
+            g_idle_add (redraw_seekbar_cb, w);
+        }
+        break;
+    }
+    return 0;
+}
+
+static gboolean
+seekbar_frameupdate (gpointer data) {
+    w_seekbar_t *w = data;
+    DB_output_t *output = deadbeef->get_output ();
+    DB_playItem_t *track = deadbeef->streamer_get_playing_track ();
+    DB_fileinfo_t *c = deadbeef->streamer_get_current_fileinfo (); // FIXME: might crash streamer
+    float songpos = w->last_songpos;
+    float duration = track ? deadbeef->pl_get_item_duration (track) : -1;
+    if (!output || (output->state () == OUTPUT_STATE_STOPPED || !track || !c)) {
+        songpos = 0;
+    }
+    else {
+        songpos = deadbeef->streamer_get_playpos ();
+    }
+    // translate pos to seekbar pixels
+    songpos /= duration;
+    GtkAllocation a;
+    gtk_widget_get_allocation (w->seekbar, &a);
+    songpos *= a.width;
+    if (fabs (songpos - w->last_songpos) > 0.01) {
+        gtk_widget_queue_draw (w->seekbar);
+        w->last_songpos = songpos;
+    }
+    if (track) {
+        deadbeef->pl_item_unref (track);
+    }
+    return TRUE;
+}
+
+static void
+w_seekbar_destroy (ddb_gtkui_widget_t *wbase) {
+    w_seekbar_t *w = (w_seekbar_t *)wbase;
+    if (w->timer) {
+        g_source_remove (w->timer);
+        w->timer = 0;
+    }
+}
+
+ddb_gtkui_widget_t *
+w_seekbar_create (void) {
+    w_seekbar_t *w = malloc (sizeof (w_seekbar_t));
+    memset (w, 0, sizeof (w_seekbar_t));
+    w->base.widget = gtk_event_box_new ();
+    w->base.message = w_seekbar_message;
+    w->base.destroy = w_seekbar_destroy;
+    w->seekbar = ddb_seekbar_new ();
+    w->last_songpos = -1;
+    ddb_seekbar_init_signals (DDB_SEEKBAR (w->seekbar), w->base.widget);
+    gtk_widget_show (w->seekbar);
+    gtk_container_add (GTK_CONTAINER (w->base.widget), w->seekbar);
+    w_override_signals (w->base.widget, w);
+    w->timer = g_timeout_add (1000/gtkui_get_gui_refresh_rate (), seekbar_frameupdate, w);
+    return (ddb_gtkui_widget_t*)w;
+}
+
+// play toolbar
+ddb_gtkui_widget_t *
+w_playtb_create (void) {
+    w_playtb_t *w = malloc (sizeof (w_playtb_t));
+    memset (w, 0, sizeof (w_playtb_t));
+    w->base.widget = gtk_hbox_new (FALSE, 0);
+    w->base.flags = DDB_GTKUI_WIDGET_FLAG_NON_EXPANDABLE;
+    gtk_widget_show (w->base.widget);
+
+    GtkWidget *stopbtn;
+    GtkWidget *image128;
+    GtkWidget *playbtn;
+    GtkWidget *image2;
+    GtkWidget *pausebtn;
+    GtkWidget *image3;
+    GtkWidget *prevbtn;
+    GtkWidget *image4;
+    GtkWidget *nextbtn;
+    GtkWidget *image5;
+
+
+    stopbtn = gtk_button_new ();
+    gtk_widget_show (stopbtn);
+    gtk_box_pack_start (GTK_BOX (w->base.widget), stopbtn, FALSE, FALSE, 0);
+    gtk_widget_set_can_focus(stopbtn, FALSE);
+    gtk_button_set_relief (GTK_BUTTON (stopbtn), GTK_RELIEF_NONE);
+
+    image128 = gtk_image_new_from_stock ("gtk-media-stop", GTK_ICON_SIZE_BUTTON);
+    gtk_widget_show (image128);
+    gtk_container_add (GTK_CONTAINER (stopbtn), image128);
+
+    playbtn = gtk_button_new ();
+    gtk_widget_show (playbtn);
+    gtk_box_pack_start (GTK_BOX (w->base.widget), playbtn, FALSE, FALSE, 0);
+    gtk_widget_set_can_focus(playbtn, FALSE);
+    gtk_button_set_relief (GTK_BUTTON (playbtn), GTK_RELIEF_NONE);
+
+    image2 = gtk_image_new_from_stock ("gtk-media-play", GTK_ICON_SIZE_BUTTON);
+    gtk_widget_show (image2);
+    gtk_container_add (GTK_CONTAINER (playbtn), image2);
+
+    pausebtn = gtk_button_new ();
+    gtk_widget_show (pausebtn);
+    gtk_box_pack_start (GTK_BOX (w->base.widget), pausebtn, FALSE, FALSE, 0);
+    gtk_widget_set_can_focus(pausebtn, FALSE);
+    gtk_button_set_relief (GTK_BUTTON (pausebtn), GTK_RELIEF_NONE);
+
+    image3 = gtk_image_new_from_stock ("gtk-media-pause", GTK_ICON_SIZE_BUTTON);
+    gtk_widget_show (image3);
+    gtk_container_add (GTK_CONTAINER (pausebtn), image3);
+
+    prevbtn = gtk_button_new ();
+    gtk_widget_show (prevbtn);
+    gtk_box_pack_start (GTK_BOX (w->base.widget), prevbtn, FALSE, FALSE, 0);
+    gtk_widget_set_can_focus(prevbtn, FALSE);
+    gtk_button_set_relief (GTK_BUTTON (prevbtn), GTK_RELIEF_NONE);
+
+    image4 = gtk_image_new_from_stock ("gtk-media-previous", GTK_ICON_SIZE_BUTTON);
+    gtk_widget_show (image4);
+    gtk_container_add (GTK_CONTAINER (prevbtn), image4);
+
+    nextbtn = gtk_button_new ();
+    gtk_widget_show (nextbtn);
+    gtk_box_pack_start (GTK_BOX (w->base.widget), nextbtn, FALSE, FALSE, 0);
+    gtk_widget_set_can_focus(nextbtn, FALSE);
+    gtk_button_set_relief (GTK_BUTTON (nextbtn), GTK_RELIEF_NONE);
+
+    image5 = gtk_image_new_from_stock ("gtk-media-next", GTK_ICON_SIZE_BUTTON);
+    gtk_widget_show (image5);
+    gtk_container_add (GTK_CONTAINER (nextbtn), image5);
+    w_override_signals (w->base.widget, w);
+
+    g_signal_connect ((gpointer) stopbtn, "clicked",
+            G_CALLBACK (on_stopbtn_clicked),
+            NULL);
+    g_signal_connect ((gpointer) playbtn, "clicked",
+            G_CALLBACK (on_playbtn_clicked),
+            NULL);
+    g_signal_connect ((gpointer) pausebtn, "clicked",
+            G_CALLBACK (on_pausebtn_clicked),
+            NULL);
+    g_signal_connect ((gpointer) prevbtn, "clicked",
+            G_CALLBACK (on_prevbtn_clicked),
+            NULL);
+    g_signal_connect ((gpointer) nextbtn, "clicked",
+            G_CALLBACK (on_nextbtn_clicked),
+            NULL);
+    return (ddb_gtkui_widget_t*)w;
+}
+
+// volumebar
+static gboolean
+redraw_volumebar_cb (gpointer data) {
+    w_volumebar_t *w = data;
+    gtk_widget_queue_draw (w->volumebar);
+    char s[100];
+    int db = deadbeef->volume_get_db ();
+    snprintf (s, sizeof (s), "%s%ddB", db < 0 ? "" : "+", db);
+    gtk_widget_set_tooltip_text (w->volumebar, s);
+    gtk_widget_trigger_tooltip_query (w->volumebar);
+    return FALSE;
+}
+
+static int
+w_volumebar_message (ddb_gtkui_widget_t *w, uint32_t id, uintptr_t ctx, uint32_t p1, uint32_t p2) {
+    switch (id) {
+    case DB_EV_CONFIGCHANGED:
+    case DB_EV_VOLUMECHANGED:
+        g_idle_add (redraw_volumebar_cb, w);
+        break;
+    }
+    return 0;
+}
+
+ddb_gtkui_widget_t *
+w_volumebar_create (void) {
+    w_volumebar_t *w = malloc (sizeof (w_volumebar_t));
+    memset (w, 0, sizeof (w_volumebar_t));
+    w->base.widget = gtk_event_box_new ();
+    w->base.message = w_volumebar_message;
+    w->volumebar = ddb_volumebar_new ();
+    ddb_volumebar_init_signals (DDB_VOLUMEBAR (w->volumebar), w->base.widget);
+    gtk_widget_show (w->volumebar);
+    gtk_widget_set_size_request (w->volumebar, 70, -1);
+    gtk_container_add (GTK_CONTAINER (w->base.widget), w->volumebar);
+    w_override_signals (w->base.widget, w);
+    return (ddb_gtkui_widget_t*)w;
 }

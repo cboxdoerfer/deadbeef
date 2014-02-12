@@ -94,9 +94,6 @@ int
 gtkui_add_new_playlist (void);
 
 void
-seekbar_redraw (void);
-
-void
 seekbar_draw (GtkWidget *widget, cairo_t *cr);
 
 gboolean
@@ -110,9 +107,6 @@ on_seekbar_button_release_event        (GtkWidget       *widget,
 gboolean
 on_seekbar_motion_notify_event         (GtkWidget       *widget,
                                         GdkEventMotion  *event);
-
-void
-volumebar_redraw (void);
 
 void
 gtkui_set_titlebar (DB_playItem_t *it);
@@ -161,5 +155,8 @@ gtkui_quit (void);
 
 void
 gtkui_run_preferences_dlg (void);
+
+int
+gtkui_get_gui_refresh_rate ();
 
 #endif

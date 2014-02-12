@@ -131,8 +131,6 @@ struct fromto_t {
 
 static gboolean
 update_win_title_idle (gpointer data);
-static gboolean
-redraw_seekbar_cb (gpointer nothing);
 
 // update status bar and window title
 static int sb_context_id = -1;
@@ -149,7 +147,6 @@ update_songinfo (gpointer ctx) {
     }
     DB_output_t *output = deadbeef->get_output ();
     char sbtext_new[512] = "-";
-    float songpos = last_songpos;
 
     float pl_totaltime = deadbeef->pl_get_totaltime ();
     int daystotal = (int)pl_totaltime / (3600*24);
@@ -175,7 +172,6 @@ update_songinfo (gpointer ctx) {
 
     if (!output || (output->state () == OUTPUT_STATE_STOPPED || !track || !c)) {
         snprintf (sbtext_new, sizeof (sbtext_new), _("Stopped | %d tracks | %s total playtime"), deadbeef->pl_getcount (PL_MAIN), totaltime_str);
-        songpos = 0;
     }
     else {
         float playpos = deadbeef->streamer_get_playpos ();
@@ -195,7 +191,6 @@ update_songinfo (gpointer ctx) {
         }
         int samplerate = c->fmt.samplerate;
         int bitspersample = c->fmt.bps;
-        songpos = playpos;
         //        codec_unlock ();
 
         char t[100];
@@ -240,18 +235,6 @@ update_songinfo (gpointer ctx) {
         gtk_statusbar_push (sb, sb_context_id, sb_text);
     }
 
-    if (mainwin) {
-        GtkWidget *widget = lookup_widget (mainwin, "seekbar");
-        // translate volume to seekbar pixels
-        songpos /= duration;
-        GtkAllocation a;
-        gtk_widget_get_allocation (widget, &a);
-        songpos *= a.width;
-        if (fabs (songpos - last_songpos) > 0.01) {
-            gtk_widget_queue_draw (widget);
-            last_songpos = songpos;
-        }
-    }
     if (track) {
         deadbeef->pl_item_unref (track);
     }
@@ -289,17 +272,6 @@ on_trayicon_scroll_event               (GtkWidget       *widget,
         vol = deadbeef->volume_get_min_db ();
     }
     deadbeef->volume_set_db (vol);
-    volumebar_redraw ();
-
-    //Update volume bar tooltip
-    if (mainwin) {
-        GtkWidget *volumebar = lookup_widget (mainwin, "volumebar");
-        char s[100];
-        int db = vol;
-        snprintf (s, sizeof (s), "%s%ddB", db < 0 ? "" : "+", db);
-        gtk_widget_set_tooltip_text (volumebar, s);
-        gtk_widget_trigger_tooltip_query (volumebar);
-    }
 
 #if 0
     char str[100];
@@ -414,7 +386,6 @@ gtkpl_songchanged_wrapper (DB_playItem_t *from, DB_playItem_t *to) {
         deadbeef->pl_item_ref (to);
     }
     g_idle_add (update_win_title_idle, ft);
-    g_idle_add (redraw_seekbar_cb, NULL);
     if (searchwin && gtk_widget_get_window (searchwin)) {
         int iconified = gdk_window_get_state(gtk_widget_get_window (searchwin)) & GDK_WINDOW_STATE_ICONIFIED;
         if (gtk_widget_get_visible (searchwin) && !iconified) {
@@ -505,13 +476,6 @@ gtkui_on_frameupdate (gpointer data) {
     update_songinfo (NULL);
 
     return TRUE;
-}
-
-static gboolean
-gtkui_volumechanged_cb (gpointer ctx) {
-    GtkWidget *volumebar = lookup_widget (mainwin, "volumebar");
-    gdk_window_invalidate_rect (gtk_widget_get_window (volumebar), NULL, FALSE);
-    return FALSE;
 }
 
 static gboolean
@@ -690,16 +654,6 @@ update_win_title_idle (gpointer data) {
     return FALSE;
 }
 
-static gboolean
-redraw_seekbar_cb (gpointer nothing) {
-    int iconified = gdk_window_get_state(gtk_widget_get_window(mainwin)) & GDK_WINDOW_STATE_ICONIFIED;
-    if (!gtk_widget_get_visible (mainwin) || iconified) {
-        return FALSE;
-    }
-    seekbar_redraw ();
-    return FALSE;
-}
-
 int
 gtkui_add_new_playlist (void) {
     int cnt = deadbeef->plt_get_count ();
@@ -732,22 +686,10 @@ gtkui_add_new_playlist (void) {
     return -1;
 }
 
-void
-volumebar_redraw (void) {
-    GtkWidget *volumebar = lookup_widget (mainwin, "volumebar");
-    gdk_window_invalidate_rect (gtk_widget_get_window (volumebar), NULL, FALSE);
-}
-
-//void
-//tabstrip_redraw (void) {
-//    GtkWidget *ts = lookup_widget (mainwin, "tabstrip");
-//    ddb_tabstrip_refresh (DDB_TABSTRIP (ts));
-//}
-
 static gint refresh_timeout = 0;
 
-void
-gtkui_setup_gui_refresh (void) {
+int
+gtkui_get_gui_refresh_rate () {
     int fps = deadbeef->conf_get_int ("gtkui.refresh_rate", 10);
     if (fps < 1) {
         fps = 1;
@@ -755,8 +697,12 @@ gtkui_setup_gui_refresh (void) {
     else if (fps > 30) {
         fps = 30;
     }
+    return fps;
+}
 
-    int tm = 1000/fps;
+void
+gtkui_setup_gui_refresh (void) {
+    int tm = 1000/gtkui_get_gui_refresh_rate ();
 
     if (refresh_timeout) {
         g_source_remove (refresh_timeout);
@@ -833,9 +779,6 @@ gtkui_message (uint32_t id, uintptr_t ctx, uint32_t p1, uint32_t p2) {
 //        break;
     case DB_EV_PLAYLISTCHANGED:
         g_idle_add (playlistchanged_cb, NULL);
-        break;
-    case DB_EV_VOLUMECHANGED:
-        g_idle_add (gtkui_volumechanged_cb, NULL);
         break;
     case DB_EV_CONFIGCHANGED:
         g_idle_add (gtkui_on_configchanged, NULL);
@@ -987,6 +930,9 @@ gtkui_thread (void *ctx) {
     w_reg_widget (_("HBox"), 0, w_hbox_create, "hbox", NULL);
     w_reg_widget (_("VBox"), 0, w_vbox_create, "vbox", NULL);
     w_reg_widget (_("Button"), 0, w_button_create, "button", NULL);
+    w_reg_widget (_("Seekbar"), 0, w_seekbar_create, "seekbar", NULL);
+    w_reg_widget (_("Playback controls"), 0, w_playtb_create, "playtb", NULL);
+    w_reg_widget (_("Volume bar"), 0, w_volumebar_create, "volumebar", NULL);
 
     mainwin = create_mainwin ();
 
