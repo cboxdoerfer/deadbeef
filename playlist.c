@@ -3750,6 +3750,22 @@ plt_search_process (playlist_t *playlist, const char *text) {
     }
     *out = 0;
 
+    int num_words = 0;
+    char str[1000];
+    strcpy (str, lc);
+    char *token[64];
+    char separator[] = " ";
+    token[0] = strtok(str, separator);
+
+    while ( token[num_words] ) {
+        if (!u8_valid(token[num_words], strlen(token[num_words]), NULL)) {
+            UNLOCK;
+            return;
+        }
+        num_words++;
+        token[num_words] = strtok(NULL, separator);
+    }
+
     static int cmpidx = 0;
     cmpidx++;
     if (cmpidx > 127) {
@@ -3758,8 +3774,11 @@ plt_search_process (playlist_t *playlist, const char *text) {
 
     for (playItem_t *it = playlist->head[PL_MAIN]; it; it = it->next[PL_MAIN]) {
         it->selected = 0;
-        if (*text) {
+        if (text && *text) {
             DB_metaInfo_t *m = NULL;
+            int words_found[64] = {0};
+            int matched = 0;
+            int nword = 0;
             for (m = it->meta; m; m = m->next) {
                 int is_uri = !strcmp (m->key, ":URI");
                 if ((m->key[0] == ':' && !is_uri) || m->key[0] == '_' || m->key[0] == '!') {
@@ -3775,28 +3794,38 @@ plt_search_process (playlist_t *playlist, const char *text) {
                         value = m->value;
                     }
                 }
-                if (strcasecmp(m->key, "cuesheet") && strcasecmp (m->key, "log")) {
-                    char cmp = *(m->value-1);
+                if (!u8_valid(value, strlen(value), NULL)) {
+                    break;
+                }
+                if (strcasecmp(m->key, "cuesheet") && strcasecmp (m->key, "log") && strcasecmp (m->key, "comment")) {
+                    //char cmp = *(m->value-1);
 
-                    if (abs (cmp) == cmpidx) {
-                        if (cmp > 0) {
-                            it->next[PL_SEARCH] = NULL;
-                            it->prev[PL_SEARCH] = playlist->tail[PL_SEARCH];
-                            if (playlist->tail[PL_SEARCH]) {
-                                playlist->tail[PL_SEARCH]->next[PL_SEARCH] = it;
-                                playlist->tail[PL_SEARCH] = it;
-                            }
-                            else {
-                                playlist->head[PL_SEARCH] = playlist->tail[PL_SEARCH] = it;
-                            }
-                            it->selected = 1;
-                            playlist->count[PL_SEARCH]++;
-                            break;
+                    //if (0 && abs (cmp) == cmpidx) {
+                    //    if (cmp > 0) {
+                    //        it->next[PL_SEARCH] = NULL;
+                    //        it->prev[PL_SEARCH] = playlist->tail[PL_SEARCH];
+                    //        if (playlist->tail[PL_SEARCH]) {
+                    //            playlist->tail[PL_SEARCH]->next[PL_SEARCH] = it;
+                    //            playlist->tail[PL_SEARCH] = it;
+                    //        }
+                    //        else {
+                    //            playlist->head[PL_SEARCH] = playlist->tail[PL_SEARCH] = it;
+                    //        }
+                    //        it->selected = 1;
+                    //        playlist->count[PL_SEARCH]++;
+                    //        break;
+                    //    }
+                    //}
+
+                    for (int i = 0; i < num_words; i++) {
+                        if (words_found[i] != 1 && utfcasestr_fast (value, token[i])) {
+                            matched++;
+                            words_found[i] = 1;
+                            //fprintf (stderr, "found: %s -> %s (%d/%d) match\n", token[i], value, matched, num_words);
                         }
                     }
-                    else if (u8_valid(value, strlen(value), NULL) && u8_valid(lc, strlen(lc), NULL) && utfcasestr_fast (value, lc)) {
-                        //fprintf (stderr, "%s -> %s match (%s.%s)\n", text, value, pl_find_meta_raw (it, ":URI"), m->key);
-                        // add to list
+                    // add to list
+                    if (matched == num_words) {
                         it->next[PL_SEARCH] = NULL;
                         it->prev[PL_SEARCH] = playlist->tail[PL_SEARCH];
                         if (playlist->tail[PL_SEARCH]) {
@@ -3808,11 +3837,11 @@ plt_search_process (playlist_t *playlist, const char *text) {
                         }
                         it->selected = 1;
                         playlist->count[PL_SEARCH]++;
-                        *((char *)m->value-1) = cmpidx;
+                        //*((char *)m->value-1) = cmpidx;
                         break;
                     }
                     else {
-                        *((char *)m->value-1) = -cmpidx;
+                        //*((char *)m->value-1) = -cmpidx;
                     }
                 }
             }
