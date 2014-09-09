@@ -191,7 +191,7 @@ void main_draw_group_title (DdbListview *listview, cairo_t *drawable, DdbListvie
         int ew, eh;
         draw_get_text_extents (&listview->grpctx, str, -1, &ew, &eh);
         draw_text_custom (&listview->grpctx, x + 5, y + height/2 - draw_get_listview_rowheight (&listview->grpctx)/2 + 3, ew+5, 0, DDB_GROUP_FONT, 0, 0, str);
-        draw_line (&listview->grpctx, x + 5 + ew + 3, y+height/2, x + width, y+height/2);
+        draw_line (&listview->grpctx, x + 5 + ew + 6, y+height/2, x + width, y+height/2);
     }
 }
 

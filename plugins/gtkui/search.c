@@ -69,8 +69,13 @@ search_start (void) {
     main_refresh ();
 }
 
+static guint resizetimer = 0;
 void
 search_destroy (void) {
+    if (resizetimer) {
+        g_source_remove (resizetimer);
+        resizetimer = 0;
+    }
     gtk_widget_destroy (searchwin);
     searchwin = NULL;
 }
@@ -87,12 +92,23 @@ search_process (const char *text) {
     }
 }
 
+static gboolean
+update_search ()
+{
+    search_refresh ();
+    main_refresh ();
+    return FALSE;
+}
+
 void
 on_searchentry_changed                 (GtkEditable     *editable,
                                         gpointer         user_data)
 {
-    search_refresh ();
-    main_refresh ();
+    if (resizetimer) {
+        g_source_remove (resizetimer);
+        resizetimer = 0;
+    }
+    resizetimer = g_timeout_add (50, update_search, NULL);
 }
 
 void
